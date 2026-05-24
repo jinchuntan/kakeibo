@@ -4,7 +4,7 @@ import { ClipboardList, CheckCircle2, AlertTriangle, XCircle, ArrowRight } from 
 import CheckInForm from '@/components/CheckInForm';
 import DisclaimerCard from '@/components/DisclaimerCard';
 import StatusBadge from '@/components/StatusBadge';
-import { mockPatients } from '@/data/mockPatients';
+import { usePatient, useApp } from '@/context/AppContext';
 import { cn } from '@/utils/cn';
 import type { CheckIn } from '@/types';
 
@@ -38,9 +38,10 @@ const resultConfig = {
 export default function DailyCheckIn() {
   const { patientId } = useParams<{ patientId: string }>();
   const navigate = useNavigate();
+  const { dispatch } = useApp();
   const [result, setResult] = useState<CheckIn | null>(null);
 
-  const patient = mockPatients.find((p) => p.id === patientId);
+  const patient = usePatient(patientId);
 
   if (!patient) {
     return (
@@ -53,6 +54,7 @@ export default function DailyCheckIn() {
   const showGlucose = patient.condition === 'Diabetes';
 
   const handleSubmit = (checkin: CheckIn) => {
+    dispatch({ type: 'ADD_CHECKIN', payload: checkin });
     setResult(checkin);
   };
 
@@ -62,8 +64,8 @@ export default function DailyCheckIn() {
 
     return (
       <div className="min-h-screen bg-slate-50">
-        <div className="max-w-lg mx-auto px-4 py-8">
-          <div className={cn('rounded-2xl border p-6 text-center', config.bg)}>
+        <div className="max-w-lg mx-auto px-4 py-8 pb-24 sm:pb-8">
+          <div className={cn('rounded-2xl border p-6 text-center animate-scale-in', config.bg)}>
             <div className={cn('mx-auto w-14 h-14 rounded-2xl flex items-center justify-center mb-4', config.iconBg)}>
               <Icon className={cn('w-7 h-7', config.color)} />
             </div>
@@ -113,7 +115,7 @@ export default function DailyCheckIn() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="max-w-lg mx-auto px-4 py-8">
+      <div className="max-w-lg mx-auto px-4 py-8 pb-24 sm:pb-8">
         <div className="text-center mb-6">
           <div className="mx-auto w-12 h-12 bg-teal-100 rounded-xl flex items-center justify-center mb-3">
             <ClipboardList className="w-6 h-6 text-teal-600" />

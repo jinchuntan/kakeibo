@@ -9,15 +9,17 @@ import {
 } from 'lucide-react';
 import StatusBadge from '@/components/StatusBadge';
 import LedgerTimeline from '@/components/LedgerTimeline';
+import BPTrendChart from '@/components/BPTrendChart';
 import DisclaimerCard from '@/components/DisclaimerCard';
-import { mockPatients, mockCheckIns } from '@/data/mockPatients';
+import { usePatient, usePatientCheckIns } from '@/context/AppContext';
 import { cn } from '@/utils/cn';
 
 export default function PatientDashboard() {
   const { patientId } = useParams<{ patientId: string }>();
   const navigate = useNavigate();
 
-  const patient = mockPatients.find((p) => p.id === patientId);
+  const patient = usePatient(patientId);
+  const checkins = usePatientCheckIns(patientId);
 
   if (!patient) {
     return (
@@ -26,10 +28,6 @@ export default function PatientDashboard() {
       </div>
     );
   }
-
-  const checkins = mockCheckIns
-    .filter((c) => c.patientId === patient.id)
-    .sort((a, b) => b.date.localeCompare(a.date));
 
   const latestCheckIn = checkins[0];
   const streak = calculateStreak(checkins);
@@ -40,9 +38,9 @@ export default function PatientDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="max-w-lg mx-auto px-4 py-8">
+      <div className="max-w-lg mx-auto px-4 py-8 pb-24 sm:pb-8">
         {/* Greeting */}
-        <div className="mb-6">
+        <div className="mb-6 animate-fade-in-up">
           <h1 className="text-2xl font-bold text-slate-800">Hi {patient.name} 👋</h1>
           <p className="text-sm text-slate-500 mt-1">Your daily care ledger</p>
         </div>
@@ -50,7 +48,7 @@ export default function PatientDashboard() {
         {/* Status Card */}
         <div
           className={cn(
-            'rounded-2xl border p-5 mb-4',
+            'rounded-2xl border p-5 mb-4 animate-fade-in-up',
             patient.riskStatus === 'green' && 'bg-emerald-50 border-emerald-200',
             patient.riskStatus === 'yellow' && 'bg-amber-50 border-amber-200',
             patient.riskStatus === 'red' && 'bg-rose-50 border-rose-200'
@@ -75,9 +73,13 @@ export default function PatientDashboard() {
             <p className="text-xs text-slate-500">Latest BP</p>
           </div>
           <div className="bg-white rounded-xl border border-slate-200 p-3 text-center">
-            <Flame className="w-5 h-5 text-amber-500 mx-auto mb-1" />
+            <div className={cn('mx-auto mb-1', streak >= 3 && 'animate-pulse')}>
+              <Flame className={cn('w-5 h-5 mx-auto', streak >= 3 ? 'text-orange-500' : 'text-amber-500')} />
+            </div>
             <p className="text-lg font-bold text-slate-800">{streak}</p>
-            <p className="text-xs text-slate-500">Day Streak</p>
+            <p className="text-xs text-slate-500">
+              {streak >= 7 ? 'Perfect Week!' : 'Day Streak'}
+            </p>
           </div>
           <div className="bg-white rounded-xl border border-slate-200 p-3 text-center">
             <CalendarCheck className="w-5 h-5 text-emerald-600 mx-auto mb-1" />
@@ -85,6 +87,9 @@ export default function PatientDashboard() {
             <p className="text-xs text-slate-500">Entries</p>
           </div>
         </div>
+
+        {/* BP Trend Chart */}
+        <BPTrendChart checkins={checkins} />
 
         {/* Medication Reminder */}
         <div className="bg-white rounded-xl border border-slate-200 p-4 mb-4 flex items-center gap-3">

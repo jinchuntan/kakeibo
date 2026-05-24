@@ -1,10 +1,7 @@
 import type { Patient, CheckIn } from '@/types';
 
 /**
- * Generates a clinician-facing summary for a patient based on their check-ins.
- *
- * Currently uses rule-based logic. Structured so it can be replaced
- * with an OpenAI/Claude API call in the future.
+ * Generates a clinician-facing summary using rule-based logic.
  */
 export function generateClinicianSummary(
   patient: Patient,
@@ -21,35 +18,29 @@ export function generateClinicianSummary(
     `${patient.name} is a ${patient.condition.toLowerCase()} patient on ${patient.medication}.`
   );
 
-  // BP reading
   if (latest.systolic && latest.diastolic) {
     parts.push(
       `Most recent BP reading: ${latest.systolic}/${latest.diastolic} mmHg.`
     );
   }
 
-  // Glucose
   if (latest.glucose) {
     parts.push(`Blood glucose: ${latest.glucose} mg/dL.`);
   }
 
-  // Medication adherence
   if (!latest.medicationTaken) {
     parts.push('Medication was missed on the most recent check-in.');
   }
 
-  // Symptoms
   const activeSymptoms = latest.symptoms.filter((s) => s !== 'None');
   if (activeSymptoms.length > 0) {
     parts.push(`Reported symptoms: ${activeSymptoms.join(', ')}.`);
   }
 
-  // Barrier
   if (latest.barrierNote.trim()) {
     parts.push(`Patient noted: "${latest.barrierNote.trim()}"`);
   }
 
-  // Recommendation
   if (latest.riskStatus === 'red') {
     parts.push(
       'Immediate clinician review is recommended. Patient may need urgent assessment.'
@@ -64,7 +55,6 @@ export function generateClinicianSummary(
     );
   }
 
-  // Streak info
   const recentAdherence = checkins
     .slice(0, 7)
     .filter((c) => c.medicationTaken).length;
@@ -114,19 +104,40 @@ export function generateSuggestedAction(
 }
 
 /**
- * Placeholder for future LLM API integration.
- * Replace this function body with an actual API call.
+ * Generates an AI-powered clinical summary.
+ * Calls Supabase Edge Function → OpenAI if configured.
+ * Falls back to rule-based if not configured or on error.
  */
 export async function generateAISummary(
-  _patient: Patient,
-  _checkins: CheckIn[]
-): Promise<string> {
-  // Future: Replace with actual API call
-  // const response = await fetch('/api/ai/summary', {
-  //   method: 'POST',
-  //   headers: { 'Content-Type': 'application/json' },
-  //   body: JSON.stringify({ patient, checkins }),
-  // });
-  // return response.json();
-  return generateClinicianSummary(_patient, _checkins);
+  patient: Patient,
+  checkins: CheckIn[]
+): Promise<{ summary: string; suggestedAction: string }> {
+  const fallback = {
+    summary: generateClinicianSummary(patient, checkins),
+    suggestedAction: generateSuggestedAction(patient, checkins),
+  };
+
+  try {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    if (!supabaseUrl) return fallback;
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/ai-summary`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({ patient, checkins: checkins.slice(0, 7) }),
+    });
+
+    if (!response.ok) return fallback;
+
+    const data = await response.json();
+    return {
+      summary: data.summary || fallback.summary,
+      suggestedAction: data.suggestedAction || fallback.suggestedAction,
+    };
+  } catch {
+    return fallback;
+  }
 }

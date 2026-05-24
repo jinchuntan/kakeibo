@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -6,19 +7,59 @@ import {
   HeartPulse,
   CalendarCheck,
   Phone,
+  Download,
+  Share2,
+  Sparkles,
 } from 'lucide-react';
 import StatusBadge from '@/components/StatusBadge';
 import LedgerTimeline from '@/components/LedgerTimeline';
 import ClinicianSummary from '@/components/ClinicianSummary';
+import BPTrendChart from '@/components/BPTrendChart';
+import GlucoseTrendChart from '@/components/GlucoseTrendChart';
+import AdherenceChart from '@/components/AdherenceChart';
 import DisclaimerCard from '@/components/DisclaimerCard';
-import { mockPatients, mockCheckIns } from '@/data/mockPatients';
-import { generateClinicianSummary, generateSuggestedAction } from '@/services/aiSummary';
+import { usePatient, usePatientCheckIns, useAlerts } from '@/context/AppContext';
+import { generateClinicianSummary, generateSuggestedAction, generateAISummary } from '@/services/aiSummary';
+import { exportPatientReport } from '@/services/pdfExport';
+import { shareCarePlan } from '@/services/shareService';
 
 export default function PatientDetail() {
   const { patientId } = useParams<{ patientId: string }>();
   const navigate = useNavigate();
 
-  const patient = mockPatients.find((p) => p.id === patientId);
+  const patient = usePatient(patientId);
+  const checkins = usePatientCheckIns(patientId);
+  const alerts = useAlerts(patientId);
+
+  const [aiSummary, setAiSummary] = useState<string | null>(null);
+  const [aiAction, setAiAction] = useState<string | null>(null);
+  const [isLoadingAI, setIsLoadingAI] = useState(false);
+  const [isAI, setIsAI] = useState(false);
+
+  const latestCheckIn = checkins[0];
+  const ruleSummary = patient ? generateClinicianSummary(patient, checkins) : '';
+  const ruleAction = patient ? generateSuggestedAction(patient, checkins) : '';
+
+  useEffect(() => {
+    if (!patient || checkins.length === 0) return;
+
+    let cancelled = false;
+    setIsLoadingAI(true);
+
+    generateAISummary(patient, checkins).then((result) => {
+      if (cancelled) return;
+      if (result.summary !== ruleSummary) {
+        setAiSummary(result.summary);
+        setAiAction(result.suggestedAction);
+        setIsAI(true);
+      }
+      setIsLoadingAI(false);
+    }).catch(() => {
+      if (!cancelled) setIsLoadingAI(false);
+    });
+
+    return () => { cancelled = true; };
+  }, [patient?.id, checkins.length]);
 
   if (!patient) {
     return (
@@ -28,19 +69,15 @@ export default function PatientDetail() {
     );
   }
 
-  const checkins = mockCheckIns
-    .filter((c) => c.patientId === patient.id)
-    .sort((a, b) => b.date.localeCompare(a.date));
-
-  const latestCheckIn = checkins[0];
-  const summary = generateClinicianSummary(patient, checkins);
-  const suggestedAction = generateSuggestedAction(patient, checkins);
+  const summary = aiSummary || ruleSummary;
+  const suggestedAction = aiAction || ruleAction;
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="max-w-3xl mx-auto px-4 py-8">
+      <div className="max-w-3xl mx-auto px-4 py-8 pb-24 sm:pb-8">
         {/* Back */}
         <button
+          type="button"
           onClick={() => navigate('/clinician')}
           className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 mb-6 transition-colors"
         >
@@ -49,7 +86,7 @@ export default function PatientDetail() {
         </button>
 
         {/* Patient Header */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 mb-4">
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 mb-4 animate-fade-in-up">
           <div className="flex items-start justify-between mb-4">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 bg-teal-100 rounded-xl flex items-center justify-center">
@@ -90,7 +127,37 @@ export default function PatientDetail() {
               </div>
             )}
           </div>
+
+          {/* Action buttons */}
+          <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => exportPatientReport(patient, checkins, summary)}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-600 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors"
+            >
+              <Download className="w-3.5 h-3.5" />
+              PDF Report
+            </button>
+            <button
+              type="button"
+              onClick={() => shareCarePlan(patient, summary)}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-600 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              Share
+            </button>
+          </div>
         </div>
+
+        {/* Alerts */}
+        {alerts.length > 0 && (
+          <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 mb-4">
+            <p className="text-sm font-semibold text-rose-700 mb-1">
+              {alerts.length} active alert{alerts.length > 1 ? 's' : ''}
+            </p>
+            <p className="text-sm text-rose-600">{alerts[0].message}</p>
+          </div>
+        )}
 
         {/* Latest Check-in Summary */}
         {latestCheckIn && (
@@ -108,7 +175,7 @@ export default function PatientDetail() {
               })}
             </p>
 
-            <div className="grid sm:grid-cols-4 gap-3 mb-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
               <div className="bg-slate-50 rounded-lg p-3 text-center">
                 <p className="text-lg font-bold text-slate-800">
                   {latestCheckIn.systolic && latestCheckIn.diastolic
@@ -172,7 +239,21 @@ export default function PatientDetail() {
 
         {/* AI Summary */}
         <div className="bg-white rounded-2xl border border-slate-200 p-6 mb-4">
-          <h2 className="text-sm font-semibold text-slate-700 mb-4">Clinical Assessment</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-slate-700">Clinical Assessment</h2>
+            {isAI && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 text-purple-600 rounded-full text-xs font-medium">
+                <Sparkles className="w-3 h-3" />
+                AI-Generated
+              </span>
+            )}
+            {isLoadingAI && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-50 text-slate-400 rounded-full text-xs font-medium animate-pulse">
+                <Sparkles className="w-3 h-3" />
+                Generating...
+              </span>
+            )}
+          </div>
           <ClinicianSummary
             summary={summary}
             suggestedAction={suggestedAction}
@@ -180,6 +261,11 @@ export default function PatientDetail() {
             riskReasons={latestCheckIn?.riskReasons || []}
           />
         </div>
+
+        {/* Charts */}
+        <BPTrendChart checkins={checkins} />
+        {patient.condition === 'Diabetes' && <GlucoseTrendChart checkins={checkins} />}
+        <AdherenceChart checkins={checkins} />
 
         {/* Timeline */}
         <div className="bg-white rounded-2xl border border-slate-200 p-6 mb-6">

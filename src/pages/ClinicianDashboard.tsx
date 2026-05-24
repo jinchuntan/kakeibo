@@ -9,11 +9,13 @@ import {
   AlertTriangle,
   CheckCircle2,
   CalendarCheck,
+  Bell,
 } from 'lucide-react';
 import StatCard from '@/components/StatCard';
 import StatusBadge from '@/components/StatusBadge';
+import AlertCard from '@/components/AlertCard';
 import DisclaimerCard from '@/components/DisclaimerCard';
-import { mockPatients, mockCheckIns } from '@/data/mockPatients';
+import { useApp, useAlerts } from '@/context/AppContext';
 import { generateSuggestedAction } from '@/services/aiSummary';
 import type { RiskStatus } from '@/types';
 
@@ -21,21 +23,21 @@ type FilterStatus = 'all' | RiskStatus;
 
 export default function ClinicianDashboard() {
   const navigate = useNavigate();
+  const { state, dispatch } = useApp();
+  const unresolvedAlerts = useAlerts();
   const [filter, setFilter] = useState<FilterStatus>('all');
   const [search, setSearch] = useState('');
 
-  const patients = mockPatients;
+  const { patients, checkIns } = state;
 
-  // Stats
   const greenCount = patients.filter((p) => p.riskStatus === 'green').length;
   const yellowCount = patients.filter((p) => p.riskStatus === 'yellow').length;
   const redCount = patients.filter((p) => p.riskStatus === 'red').length;
-  const missedMedToday = mockCheckIns.filter(
-    (c) =>
-      c.date === new Date().toISOString().split('T')[0] && !c.medicationTaken
+  const today = new Date().toISOString().split('T')[0];
+  const missedMedToday = checkIns.filter(
+    (c) => c.date === today && !c.medicationTaken
   ).length;
 
-  // Filter and search
   const filtered = patients
     .filter((p) => filter === 'all' || p.riskStatus === filter)
     .filter((p) => p.name.toLowerCase().includes(search.toLowerCase()))
@@ -53,7 +55,7 @@ export default function ClinicianDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="max-w-5xl mx-auto px-4 py-8">
+      <div className="max-w-5xl mx-auto px-4 py-8 pb-24 sm:pb-8">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -69,6 +71,30 @@ export default function ClinicianDashboard() {
             Demo Mode
           </span>
         </div>
+
+        {/* Active Alerts */}
+        {unresolvedAlerts.length > 0 && (
+          <div className="mb-6">
+            <h2 className="text-sm font-semibold text-slate-700 flex items-center gap-2 mb-3">
+              <Bell className="w-4 h-4 text-rose-500" />
+              Active Alerts ({unresolvedAlerts.length})
+            </h2>
+            <div className="space-y-3">
+              {unresolvedAlerts.slice(0, 3).map((alert) => {
+                const patient = patients.find((p) => p.id === alert.patientId);
+                return (
+                  <AlertCard
+                    key={alert.id}
+                    alert={alert}
+                    patientName={patient?.name || 'Unknown'}
+                    onResolve={() => dispatch({ type: 'RESOLVE_ALERT', payload: alert.id })}
+                    onClick={() => navigate(`/clinician/patient/${alert.patientId}`)}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Stats Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
@@ -86,7 +112,7 @@ export default function ClinicianDashboard() {
               <button
                 key={value}
                 onClick={() => setFilter(value)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all min-h-[44px] sm:min-h-0 ${
                   filter === value
                     ? color + ' ring-2 ring-offset-1 ring-slate-300'
                     : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'
@@ -102,14 +128,13 @@ export default function ClinicianDashboard() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search by name..."
-              className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+              className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent min-h-[44px] sm:min-h-0"
             />
           </div>
         </div>
 
         {/* Patient Table */}
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-          {/* Header Row */}
           <div className="hidden sm:grid grid-cols-12 gap-4 px-5 py-3 bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-wide">
             <div className="col-span-2">Patient</div>
             <div className="col-span-2">Condition</div>
@@ -120,11 +145,12 @@ export default function ClinicianDashboard() {
             <div className="col-span-4">Suggested Action</div>
           </div>
 
-          {/* Rows */}
           {filtered.map((patient) => {
-            const latestCheckIn = mockCheckIns
+            const patientCheckins = checkIns
               .filter((c) => c.patientId === patient.id)
-              .sort((a, b) => b.date.localeCompare(a.date))[0];
+              .sort((a, b) => b.date.localeCompare(a.date));
+
+            const latestCheckIn = patientCheckins[0];
 
             const bp =
               latestCheckIn?.systolic && latestCheckIn?.diastolic
@@ -132,11 +158,6 @@ export default function ClinicianDashboard() {
                 : '—';
 
             const medStatus = latestCheckIn?.medicationTaken ? 'Taken' : 'Missed';
-
-            const patientCheckins = mockCheckIns
-              .filter((c) => c.patientId === patient.id)
-              .sort((a, b) => b.date.localeCompare(a.date));
-
             const suggestedAction = generateSuggestedAction(patient, patientCheckins);
 
             const lastCheckIn = patient.lastCheckInAt
@@ -152,7 +173,6 @@ export default function ClinicianDashboard() {
                 onClick={() => navigate(`/clinician/patient/${patient.id}`)}
                 className="grid grid-cols-1 sm:grid-cols-12 gap-2 sm:gap-4 px-5 py-4 border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors"
               >
-                {/* Mobile: stacked layout */}
                 <div className="sm:col-span-2">
                   <div className="flex items-center justify-between sm:block">
                     <div>
@@ -191,7 +211,6 @@ export default function ClinicianDashboard() {
                   <p className="text-sm text-slate-500 line-clamp-2">{suggestedAction}</p>
                 </div>
 
-                {/* Mobile stats */}
                 <div className="flex gap-4 text-xs text-slate-500 sm:hidden">
                   <span className="flex items-center gap-1">
                     <Activity className="w-3 h-3" /> {bp}
